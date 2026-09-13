@@ -24,16 +24,10 @@ jobs:
           unzip -q android-ndk-r25c-linux.zip
           echo "ANDROID_NDK=$HOME/ndk/android-ndk-r25c" >> $GITHUB_ENV
 
-      - name: Download Android SDK build-tools (for d8)
-        run: |
-          mkdir -p $HOME/sdk/cmdline-tools
-          cd $HOME/sdk
-          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-          unzip -q commandlinetools-linux-*.zip
-          mkdir -p cmdline-tools/latest
-          mv cmdline-tools/bin cmdline-tools/lib cmdline-tools/latest/ 2>/dev/null || true
-          yes | cmdline-tools/latest/bin/sdkmanager --sdk_root=$HOME/sdk "build-tools;34.0.0" >/dev/null
-          echo "D8=$HOME/sdk/build-tools/34.0.0/d8" >> $GITHUB_ENV
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-34 build-tools;34.0.0'
 
       - name: Compile native .so
         run: |
@@ -49,9 +43,16 @@ jobs:
       - name: Compile Java overlay to dex
         run: |
           mkdir -p java-out
-          javac -d java-out $(find java -name "*.java")
-          chmod +x $D8
-          $D8 --output . $(find java-out -name "*.class")
+          ANDROID_JAR=$ANDROID_HOME/platforms/android-34/android.jar
+          javac \
+            --release 8 \
+            -cp "$ANDROID_JAR" \
+            -d java-out \
+            $(find java -name "*.java")
+          $ANDROID_HOME/build-tools/34.0.0/d8 \
+            --output . \
+            --lib "$ANDROID_JAR" \
+            $(find java-out -name "*.class")
 
       - name: Collect artifacts
         run: |
