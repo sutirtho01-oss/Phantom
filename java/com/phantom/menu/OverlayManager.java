@@ -1,7 +1,13 @@
 package com.phantom.menu;
 
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.PixelFormat;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.Settings;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 
@@ -11,15 +17,44 @@ public class OverlayManager {
     private static OverlayView overlay;
     private static MenuView menu;
     private static boolean attached = false;
+    private static boolean waiting = false;
+    private static Context appContext;
 
     public static void attach(Context context) {
         if (attached) return;
+        appContext = context.getApplicationContext();
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (!Settings.canDrawOverlays(appContext)) {
+                if (!waiting) {
+                    waiting = true;
+                    try {
+                        Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:" + appContext.getPackageName()));
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        appContext.startActivity(intent);
+                    } catch (Throwable t) { }
+                    new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+                        public void run() {
+                            if (Settings.canDrawOverlays(appContext)) {
+                                waiting = false;
+                                attach(appContext);
+                            } else {
+                                new Handler(Looper.getMainLooper()).postDelayed(this, 1000);
+                            }
+                        }
+                    }, 1000);
+                }
+                return;
+            }
+        }
+
         attached = true;
         try {
-            wm = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
-            container = new FrameLayout(context);
-            overlay = new OverlayView(context);
-            menu = new MenuView(context);
+            wm = (WindowManager) appContext.getSystemService(Context.WINDOW_SERVICE);
+            container = new FrameLayout(appContext);
+            overlay = new OverlayView(appContext);
+            menu = new MenuView(appContext);
 
             container.addView(overlay, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -39,7 +74,7 @@ public class OverlayManager {
 
             wm.addView(container, params);
         } catch (Throwable t) {
-            // overlay failed but hooks still work
+            attached = false;
         }
     }
 }
