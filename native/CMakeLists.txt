@@ -19,5 +19,4 @@ target_link_libraries(phantom
     android
     log
     dl
-    pthread
 )
