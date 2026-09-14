@@ -1,7 +1,8 @@
-// main.cpp — entry point, hooks IL2CPP game methods
 #include <jni.h>
 #include <android/log.h>
 #include <dlfcn.h>
+#include <pthread.h>
+#include <unistd.h>
 #include "il2cpp_resolver.hpp"
 #include "And64InlineHook.hpp"
 
@@ -27,7 +28,6 @@ JavaVM* g_vm = nullptr;
 extern void InitEspHooks();
 extern void InitChatHooks();
 
-// ---- hook bodies ----
 typedef float (*PC_getSpeed_t)(void*);
 PC_getSpeed_t orig_getSpeed = nullptr;
 float hook_getSpeed(void* t) {
@@ -70,14 +70,12 @@ void hook_setFps(int fps) {
     if (orig_setFps) orig_setFps(fps);
 }
 
-// ---- JNI_OnLoad ----
-extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void*) {
-    g_vm = vm;
-    LOGI("libphantom loaded");
+static void InstallAllHooks() {
+    LOGI("installing hooks now");
 
     if (!il2cpp::Attach()) {
-        LOGE("il2cpp attach failed - game not loaded yet");
-        return JNI_VERSION_1_6;
+        LOGE("il2cpp Attach failed after load");
+        return;
     }
 
     struct H {
@@ -108,11 +106,37 @@ extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void*) {
 
     InitEspHooks();
     InitChatHooks();
+    LOGI("all hooks installed");
+}
+
+static void* HookWaiter(void*) {
+    LOGI("waiter thread started");
+    for (int i = 0; i < 240; i++) {
+        void* h = dlopen("libil2cpp.so", RTLD_NOLOAD | RTLD_LAZY);
+        if (h) {
+            dlclose(h);
+            LOGI("libil2cpp.so detected at iteration %d", i);
+            usleep(3000000);
+            InstallAllHooks();
+            return nullptr;
+        }
+        usleep(500000);
+    }
+    LOGE("libil2cpp.so never appeared in 120s");
+    return nullptr;
+}
+
+extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void*) {
+    g_vm = vm;
+    LOGI("libphantom loaded - spawning hook waiter");
+
+    pthread_t t;
+    pthread_create(&t, nullptr, HookWaiter, nullptr);
+    pthread_detach(t);
 
     return JNI_VERSION_1_6;
 }
 
-// ---- JNI setters — package com.phantom.menu ----
 #define SETTER_BOOL(name, var) \
     extern "C" JNIEXPORT void JNICALL \
     Java_com_phantom_menu_NativeBridge_##name(JNIEnv*, jclass, jboolean on) { var = on; }
